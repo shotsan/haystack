@@ -561,6 +561,45 @@ class TestComponentLifecycle:
         fallback.warm_up()
         fallback.close()
 
+    def test_warm_up_tolerates_failed_generator_when_one_succeeds(self) -> None:
+        failing_gen = Mock(spec=["run", "warm_up"])
+        failing_gen.warm_up.side_effect = ValueError("missing api key")
+        failing_gen.run.side_effect = ValueError("missing api key")
+
+        success_gen = Mock(spec=["run", "warm_up"])
+        success_gen.run.return_value = {"replies": [ChatMessage.from_assistant("ok")]}
+
+        fallback = FallbackChatGenerator(chat_generators=[failing_gen, success_gen])  # type: ignore[arg-type]
+        fallback.warm_up()
+        result = fallback.run(messages=[ChatMessage.from_user("hi")])
+        assert result["replies"][0].text == "ok"
+        assert result["meta"]["successful_chat_generator_index"] == 1
+
+    async def test_warm_up_async_tolerates_failed_generator_when_one_succeeds(self) -> None:
+        failing_gen = Mock(spec=["run", "warm_up_async"])
+        failing_gen.warm_up_async = AsyncMock(side_effect=ValueError("missing api key"))
+        failing_gen.run.side_effect = ValueError("missing api key")
+
+        success_gen = Mock(spec=["run", "warm_up_async"])
+        success_gen.warm_up_async = AsyncMock()
+        success_gen.run.return_value = {"replies": [ChatMessage.from_assistant("ok")]}
+
+        fallback = FallbackChatGenerator(chat_generators=[failing_gen, success_gen])  # type: ignore[arg-type]
+        await fallback.warm_up_async()
+        result = await fallback.run_async(messages=[ChatMessage.from_user("hi")])
+        assert result["replies"][0].text == "ok"
+        assert result["meta"]["successful_chat_generator_index"] == 1
+
+    def test_warm_up_raises_when_all_generators_fail(self) -> None:
+        gen1 = Mock(spec=["run", "warm_up"])
+        gen1.warm_up.side_effect = ValueError("err1")
+        gen2 = Mock(spec=["run", "warm_up"])
+        gen2.warm_up.side_effect = ValueError("err2")
+
+        fallback = FallbackChatGenerator(chat_generators=[gen1, gen2])  # type: ignore[arg-type]
+        with pytest.raises(ValueError, match="err1"):
+            fallback.warm_up()
+
 
 @component
 class CustomGeneratorWithoutSerDe:

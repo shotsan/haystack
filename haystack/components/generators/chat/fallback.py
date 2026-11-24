@@ -88,17 +88,39 @@ class FallbackChatGenerator:
 
     def warm_up(self) -> None:
         """Warm up all underlying chat generators."""
+        errors: list[Exception] = []
         for gen in self.chat_generators:
             if hasattr(gen, "warm_up"):
-                gen.warm_up()
+                try:
+                    gen.warm_up()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning(
+                        "ChatGenerator {chat_generator} failed to warm up with error: {error}",
+                        chat_generator=gen.__class__.__name__,
+                        error=e,
+                    )
+                    errors.append(e)
+        if len(errors) == len(self.chat_generators):
+            raise errors[0]
 
     async def warm_up_async(self) -> None:
         """Warm up all underlying chat generators on the serving event loop."""
+        errors: list[Exception] = []
         for gen in self.chat_generators:
-            if hasattr(gen, "warm_up_async"):
-                await gen.warm_up_async()
-            elif hasattr(gen, "warm_up"):
-                gen.warm_up()
+            try:
+                if hasattr(gen, "warm_up_async"):
+                    await gen.warm_up_async()
+                elif hasattr(gen, "warm_up"):
+                    gen.warm_up()
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "ChatGenerator {chat_generator} failed to warm up with error: {error}",
+                    chat_generator=gen.__class__.__name__,
+                    error=e,
+                )
+                errors.append(e)
+        if len(errors) == len(self.chat_generators):
+            raise errors[0]
 
     def close(self) -> None:
         """Release the underlying chat generators' resources."""
